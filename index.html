@@ -182,7 +182,7 @@
   <div id="scorePanel">
     <div class="label">梳毛次数</div>
     <div class="value" id="score">0</div>
-    <div id="multiplier">×50</div>
+    <div id="multiplier">×25</div>
   </div>
 
   <div id="catWrap">
@@ -231,12 +231,12 @@
     forgiveMax: 5000,
 
     // 背景音效
-    bgmMin: 3000,
-    bgmMax: 12000,
+    bgmMin: 10000,
+    bgmMax: 35000,
     bgmVolume: 0.35,
 
     // 回头时的得分倍率
-    angryMultiplier: 50
+    angryMultiplier: 25
   };
 
   // ====== DOM ======
@@ -250,23 +250,26 @@
   const restartBtn= document.getElementById('restartBtn');
 
   // ====== 音效 ======
+ function makeAudio(src, volume) {
+  const a = new Audio();
+  a.preload = 'auto';        // 让浏览器主动预加载
+  a.src = src;
+  a.volume = volume;
+  a.load();                  // 主动触发加载
+  return a;
+}
+ 
   const brushSounds = [
-    new Audio(BASE_SND + 'brush1.MP3'),
-    new Audio(BASE_SND + 'brush2.MP3')
-  ];
-  brushSounds.forEach(s => { s.volume = 0.45; });
-
+  makeAudio(BASE_SND + 'brush1.MP3', 0.45),
+  makeAudio(BASE_SND + 'brush2.MP3', 0.45)
+];
   const bgmSounds = [1,2,3,4,5,6].map(i =>
-    new Audio(BASE_SND + 'm' + i + '.MP3')
-  );
-  bgmSounds.forEach(s => { s.volume = CONFIG.bgmVolume; });
-
+  makeAudio(BASE_SND + 'm' + i + '.MP3', CONFIG.bgmVolume)
+);
   const sounds = {
-    meow: new Audio(BASE_SND + 'meow.MP3'),
-    lose: new Audio(BASE_SND + 'lose.MP3')
-  };
-  sounds.meow.volume = 0.6;
-  sounds.lose.volume = 0.7;
+  meow: makeAudio(BASE_SND + 'meow.MP3', 0.6),
+  lose: makeAudio(BASE_SND + 'lose.MP3', 0.7)
+};
 
   function playBrushSound() {
     const s = brushSounds[Math.floor(Math.random() * brushSounds.length)];
