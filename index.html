@@ -69,6 +69,7 @@
     100% { transform: translate(-50%, -180%) scale(1.25); opacity: 0; }
   }
 
+  /* 左上角分数 */
   #scorePanel {
     position: absolute;
     top: 24px;
@@ -87,6 +88,22 @@
     font-weight: 800;
     color: #6b6357;
     line-height: 1.1;
+  }
+
+  /* ×5 提示 */
+  #multiplier {
+    display: none;
+    margin-top: 4px;
+    font-size: 20px;
+    font-weight: 800;
+    color: #e07a7a;
+    letter-spacing: 1px;
+    animation: pulse 0.8s ease-in-out infinite;
+  }
+  #multiplier.show { display: block; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1);   opacity: 1; }
+    50%      { transform: scale(1.15); opacity: 0.75; }
   }
 
   #deathModal {
@@ -127,7 +144,21 @@
   #deathCard .sub {
     font-size: 15px;
     color: #8a8178;
+    margin-bottom: 16px;
+  }
+  /* 弹窗里的最终分数 */
+  #deathCard .finalScore {
+    font-size: 18px;
+    font-weight: 700;
+    color: #6b6357;
     margin-bottom: 28px;
+  }
+  #deathCard .finalScore #finalScore {
+    font-size: 34px;
+    color: #a48b8b;
+    font-weight: 800;
+    vertical-align: -3px;
+    margin-left: 4px;
   }
   #restartBtn {
     padding: 12px 40px;
@@ -151,6 +182,7 @@
   <div id="scorePanel">
     <div class="label">梳毛次数</div>
     <div class="value" id="score">0</div>
+    <div id="multiplier">×5</div>
   </div>
 
   <div id="catWrap">
@@ -162,8 +194,9 @@
 
 <div id="deathModal">
   <div id="deathCard">
-    <h1>you died！</h1>
+    <h1>You died！</h1>
     <div class="sub">猫咪生气了…</div>
+    <div class="finalScore">梳毛次数<span id="finalScore">0</span></div>
     <button id="restartBtn">再来一次</button>
   </div>
 </div>
@@ -182,16 +215,16 @@
   // ====== 配置 ======
   const CONFIG = {
     // 划动判定
-    minStrokeHeightRatio: 0.3,   // 一次有效划动的高度 > 0.3 * 屏幕宽度
-    strokeIdleReset: 200,        // 超过这个时间没移动就重置划动起点（ms）
+    minStrokeHeightRatio: 0.3,
+    strokeIdleReset: 200,
 
-    brushSoundCooldown: 80,     // brush 音效最短间隔（ms）
+    brushSoundCooldown: 80,
 
     // 猫咪状态（由划动次数驱动）
     calmStrokesMin: 3,
-    calmStrokesMax: 12,
+    calmStrokesMax: 30,
     angryStrokesMin: 2,
-    angryStrokesMax: 8,
+    angryStrokesMax: 50,
 
     // 回头时停止梳毛多久后恢复
     forgiveMin: 1000,
@@ -200,7 +233,10 @@
     // 背景音效
     bgmMin: 3000,
     bgmMax: 12000,
-    bgmVolume: 0.35
+    bgmVolume: 0.35,
+
+    // 回头时的得分倍率
+    angryMultiplier: 5
   };
 
   // ====== DOM ======
@@ -208,10 +244,12 @@
   const catEl     = document.getElementById('cat');
   const brushEl   = document.getElementById('brush');
   const scoreEl   = document.getElementById('score');
+  const multiplierEl = document.getElementById('multiplier');
   const deathModal= document.getElementById('deathModal');
+  const finalScoreEl = document.getElementById('finalScore');
   const restartBtn= document.getElementById('restartBtn');
 
-  // ====== 音效（后缀统一改成 .MP3） ======
+  // ====== 音效 ======
   const brushSounds = [
     new Audio(BASE_SND + 'brush1.MP3'),
     new Audio(BASE_SND + 'brush2.MP3')
@@ -272,19 +310,16 @@
     }, delay);
   }
 
-  // ====== 有效区域计算（核心） ======
-  // 屏幕宽 x、高 h
-  // 竖直有效范围：[0.5h - 0.5x, 0.5h + 0.5x]
-  // 水平不做限制（你想限制可以再加）
+  // ====== 有效区域 ======
   function getValidArea() {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const half = w * 0.5;
     return {
       w, h,
-      top:    h * 0.5 - half,   // 上边界
-      bottom: h * 0.5 + half,   // 下边界
-      minHeight: w * CONFIG.minStrokeHeightRatio   // 一次划动需要的最小高度
+      top:    h * 0.5 - half,
+      bottom: h * 0.5 + half,
+      minHeight: w * CONFIG.minStrokeHeightRatio
     };
   }
 
@@ -297,10 +332,9 @@
   const state = {
     score: 0,
 
-    // 一次划动的追踪
-    strokeStartY: null,          // 本次划动起点（clientY）
-    strokeStartValid: false,     // 起点是否在有效区域内
-    strokeCounted: false,        // 本次划动是否已经计过分（保证一次最多计一次）
+    strokeStartY: null,
+    strokeStartValid: false,
+    strokeCounted: false,
     lastMoveTime: 0,
     lastBrushSoundTime: 0,
 
@@ -336,10 +370,12 @@
 
     if (next === 'calm') {
       catEl.src = IMG_NORMAL;
+      multiplierEl.classList.remove('show');       // 隐藏 ×5
       state.strokesInCalm = 0;
       state.calmTarget = Math.round(rand(CONFIG.calmStrokesMin, CONFIG.calmStrokesMax));
     } else if (next === 'angry') {
       catEl.src = IMG_ANGRY;
+      multiplierEl.classList.add('show');           // 显示 ×5
       playSound('meow');
       state.strokesInAngry = 0;
       state.angryTarget = Math.round(rand(CONFIG.angryStrokesMin, CONFIG.angryStrokesMax));
@@ -362,7 +398,12 @@
     if (state.catState === 'dead') return;
     state.catState = 'dead';
     clearTimeout(state.forgiveTimer);
+    multiplierEl.classList.remove('show');
     playSound('lose');
+
+    // 显示最终梳毛次数
+    finalScoreEl.textContent = state.score;
+
     deathModal.classList.add('show');
   }
 
@@ -372,7 +413,6 @@
     const x = clientX - rect.left;
     const y = clientY - rect.top;
 
-    // ---- 有效区域判断：不在范围内就不显示梳子 ----
     const inArea = isInValidArea(clientY);
     if (inArea) {
       brushEl.style.display = 'block';
@@ -381,7 +421,6 @@
       state.brushShown = true;
     } else {
       brushEl.style.display = 'none';
-      // 离开有效区域，视为一次划动结束
       state.strokeStartY = null;
       state.strokeStartValid = false;
       state.strokeCounted = false;
@@ -392,7 +431,6 @@
 
     const t = now();
 
-    // ---- 开始一次新划动 ----
     if (state.strokeStartY === null || t - state.lastMoveTime > CONFIG.strokeIdleReset) {
       state.strokeStartY = clientY;
       state.strokeStartValid = true;
@@ -401,20 +439,15 @@
       return;
     }
 
-    // ---- 计算本次划动已经走过的竖直高度 ----
-    const dy = clientY - state.strokeStartY;   // 正数 = 从上往下
-
-    // ---- 判定 ----
-    // 条件1：从上往下（dy > 0）
-    // 条件2：本次划动竖直高度超过阈值
-    // 条件3：本次划动还没计过分
+    const dy = clientY - state.strokeStartY;
     const minH = getValidArea().minHeight;
 
     if (dy > 0 && dy >= minH && !state.strokeCounted) {
-      state.strokeCounted = true;          // 锁定，本次划动不再计分
+      state.strokeCounted = true;
 
-      // ====== 一次有效梳毛 ======
-      state.score++;
+      // ====== 计分：回头时 5 倍 ======
+      const gain = state.catState === 'angry' ? CONFIG.angryMultiplier : 1;
+      state.score += gain;
       scoreEl.textContent = state.score;
 
       if (t - state.lastBrushSoundTime > CONFIG.brushSoundCooldown) {
@@ -427,7 +460,7 @@
 
       state.lastStrokeTime = t;
 
-      // ---- 推进猫咪状态 ----
+      // ---- 推进猫咪状态（按次数，不受倍率影响）----
       if (state.catState === 'calm') {
         state.strokesInCalm++;
         if (state.strokesInCalm >= state.calmTarget) {
@@ -445,7 +478,6 @@
     state.lastMoveTime = t;
   }
 
-  // 手指/鼠标离开 → 结束本次划动
   function onPointerLeave() {
     state.strokeStartY = null;
     state.strokeStartValid = false;
@@ -492,6 +524,7 @@
     state.brushShown = false;
     brushEl.style.display = 'none';
     clearTimeout(state.forgiveTimer);
+    multiplierEl.classList.remove('show');
     setCatState('calm');
   }
 
