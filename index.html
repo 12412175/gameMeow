@@ -9,7 +9,7 @@
   html, body {
     width: 100%; height: 100%;
     overflow: hidden;
-    background: #e8e4dd;                    /* 莫兰迪米灰 */
+    background: #e8e4dd;
     font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     user-select: none;
     touch-action: none;
@@ -24,7 +24,6 @@
     cursor: none;
   }
 
-  /* 猫的容器 */
   #catWrap {
     position: relative;
     width: min(85vw, 85vh, 520px);
@@ -44,7 +43,6 @@
     transition: opacity 0.15s ease;
   }
 
-  /* 梳子（emoji 手掌） */
   #brush {
     position: absolute;
     pointer-events: none;
@@ -53,10 +51,9 @@
     line-height: 1;
     transform: translate(-50%, -50%);
     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
-    display: none;                          /* 首次移动后再显示 */
+    display: none;
   }
 
-  /* 特效（爱心 / 生气） */
   .fx {
     position: absolute;
     pointer-events: none;
@@ -72,7 +69,6 @@
     100% { transform: translate(-50%, -180%) scale(1.25); opacity: 0; }
   }
 
-  /* 左上角分数 */
   #scorePanel {
     position: absolute;
     top: 24px;
@@ -89,15 +85,14 @@
   #scorePanel .value {
     font-size: 44px;
     font-weight: 800;
-    color: #6b6357;                         /* 莫兰迪深灰 */
+    color: #6b6357;
     line-height: 1.1;
   }
 
-  /* 死亡弹窗 */
   #deathModal {
     position: fixed;
     inset: 0;
-    background: rgba(80, 72, 66, 0.55);     /* 莫兰迪半透明 */
+    background: rgba(80, 72, 66, 0.55);
     display: none;
     align-items: center;
     justify-content: center;
@@ -124,7 +119,7 @@
   }
   #deathCard h1 {
     font-size: 42px;
-    color: #a48b8b;                         /* 莫兰迪玫瑰灰 */
+    color: #a48b8b;
     font-weight: 800;
     letter-spacing: 2px;
     margin-bottom: 12px;
@@ -139,7 +134,7 @@
     font-size: 16px;
     font-weight: 700;
     color: #fff;
-    background: #a8b5a2;                    /* 莫兰迪灰绿 */
+    background: #a8b5a2;
     border: none;
     border-radius: 999px;
     cursor: pointer;
@@ -159,7 +154,7 @@
   </div>
 
   <div id="catWrap">
-    <img id="cat" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/cat.png" alt="猫" draggable="false">
+    <img id="cat" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/cat.png" alt="猫" draggable="false" crossorigin="anonymous">
   </div>
 
   <div id="brush">🫳</div>
@@ -187,15 +182,26 @@
   // ====== 配置 ======
   const CONFIG = {
     minStrokeLength: 100,      // 一次有效梳毛的最小滑动距离（像素）
-    brushSoundCooldown: 200,  // brush.mp3 音效最短间隔（毫秒）
-    // 猫咪回头随机时间
-    calmMin: 1000,            // 平静期最短（ms）
-    calmMax: 15000,           // 平静期最长（ms）
-    angryMin: 1000,           // 回头后到死亡的随机时间（ms）
-    angryMax: 20000,          // 回头后到死亡的随机时间（ms）
-    forgiveMin: 1000,         // 回头时停止梳毛多久后恢复（ms）
-    forgiveMax: 5000,         // 回头时停止梳毛多久后恢复（ms）
-    strokeIdleReset: 150      // 超过这个时间没移动就重置滑动起点（ms）
+    brushSoundCooldown: 180,   // brush 音效最短间隔（毫秒）
+
+    // ====== 核心：所有"回头/死亡"由划动次数驱动 ======
+    // 平静期：累计这么多次有效划动后，猫回头
+    calmStrokesMin: 3,         // 最少划几下回头
+    calmStrokesMax: 12,        // 最多划几下回头
+    // 生气期：回头后再累计这么多次有效划动，猫死亡
+    angryStrokesMin: 2,        // 最少再划几下死亡
+    angryStrokesMax: 8,        // 最多再划几下死亡
+
+    // 回头时停止梳毛多久后恢复（ms）
+    forgiveMin: 1000,
+    forgiveMax: 5000,
+
+    strokeIdleReset: 150,      // 超过这个时间没移动就重置滑动起点
+
+    // 背景音效随机播放间隔（ms）
+    bgmMin: 3000,
+    bgmMax: 12000,
+    bgmVolume: 0.35
   };
 
   // ====== DOM ======
@@ -207,14 +213,46 @@
   const restartBtn= document.getElementById('restartBtn');
 
   // ====== 音效 ======
+  // brush 音效：随机二选一
+  const brushSounds = [
+    new Audio(BASE_SND + 'brush1.mp3'),
+    new Audio(BASE_SND + 'brush2.mp3')
+  ];
+  brushSounds.forEach(s => { s.volume = 0.45; });
+
+  // 背景音效：m1 ~ m6
+  const bgmSounds = [1,2,3,4,5,6].map(i =>
+    new Audio(BASE_SND + 'm' + i + '.mp3')
+  );
+  bgmSounds.forEach(s => { s.volume = CONFIG.bgmVolume; });
+
+  // 其他音效
   const sounds = {
-    brush: new Audio(BASE_SND + 'brush.mp3'),
-    meow:  new Audio(BASE_SND + 'meow.mp3'),
-    lose:  new Audio(BASE_SND + 'lose.mp3')
+    meow: new Audio(BASE_SND + 'meow.mp3'),
+    lose: new Audio(BASE_SND + 'lose.mp3')
   };
-  sounds.brush.volume = 0.45;
-  sounds.meow.volume  = 0.6;
-  sounds.lose.volume  = 0.7;
+  sounds.meow.volume = 0.6;
+  sounds.lose.volume = 0.7;
+
+  function playBrushSound() {
+    const s = brushSounds[Math.floor(Math.random() * brushSounds.length)];
+    if (!s) return;
+    try {
+      s.currentTime = 0;
+      const p = s.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+  }
+
+  function playBgmSound() {
+    const s = bgmSounds[Math.floor(Math.random() * bgmSounds.length)];
+    if (!s) return;
+    try {
+      s.currentTime = 0;
+      const p = s.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+  }
 
   function playSound(name) {
     const s = sounds[name];
@@ -223,29 +261,92 @@
       s.currentTime = 0;
       const p = s.play();
       if (p && p.catch) p.catch(() => {});
-    } catch (e) { /* 忽略 */ }
+    } catch (e) {}
   }
+
+  // ====== 背景音效调度 ======
+  let bgmTimer = null;
+  function scheduleBgm() {
+    clearTimeout(bgmTimer);
+    const delay = rand(CONFIG.bgmMin, CONFIG.bgmMax);
+    bgmTimer = setTimeout(() => {
+      if (state.catState === 'dead') return;
+      playBgmSound();
+      scheduleBgm();
+    }, delay);
+  }
+
+  // ====== 图片像素级判定 ======
+  const hitCanvas = document.createElement('canvas');
+  const hitCtx = hitCanvas.getContext('2d', { willReadFrequently: true });
+  let hitData = null;
+  let hitImgW = 0, hitImgH = 0;
+
+  function buildHitMap() {
+    try {
+      hitImgW = catEl.naturalWidth;
+      hitImgH = catEl.naturalHeight;
+      if (!hitImgW || !hitImgH) return;
+      hitCanvas.width  = hitImgW;
+      hitCanvas.height = hitImgH;
+      hitCtx.clearRect(0, 0, hitImgW, hitImgH);
+      hitCtx.drawImage(catEl, 0, 0);
+      hitData = hitCtx.getImageData(0, 0, hitImgW, hitImgH);
+    } catch (e) {
+      hitData = null;
+    }
+  }
+
+  function isOnCat(clientX, clientY) {
+    const imgRect = catEl.getBoundingClientRect();
+
+    if (clientX < imgRect.left || clientX > imgRect.right ||
+        clientY < imgRect.top  || clientY > imgRect.bottom) {
+      return false;
+    }
+
+    if (!hitData) return true;
+
+    const u = (clientX - imgRect.left) / imgRect.width;
+    const v = (clientY - imgRect.top)  / imgRect.height;
+    const px = Math.floor(u * hitImgW);
+    const py = Math.floor(v * hitImgH);
+
+    if (px < 0 || py < 0 || px >= hitImgW || py >= hitImgH) return false;
+
+    const idx = (py * hitImgW + px) * 4;
+    const alpha = hitData.data[idx + 3];
+    return alpha > 20;
+  }
+
+  if (catEl.complete && catEl.naturalWidth) {
+    buildHitMap();
+  } else {
+    catEl.addEventListener('load', buildHitMap);
+  }
+  catEl.addEventListener('load', buildHitMap);
 
   // ====== 状态 ======
   const state = {
-    // 分数
     score: 0,
-    // 滑动追踪
-    strokeStartY: null,     // 起始 Y
-    strokeStartX: null,     // 起始 X
+    strokeStartY: null,
+    strokeStartX: null,
     lastMoveTime: 0,
     lastBrushSoundTime: 0,
-    // 猫咪状态：'calm' | 'angry' | 'dead'
-    catState: 'calm',
-    // 计时器句柄
-    stateTimer: null,       // 平静/回头后的定时器
-    // 平滑用
+    catState: 'calm',           // 'calm' | 'angry' | 'dead'
+
+    // 划动计数（关键）
+    strokesInCalm: 0,           // 平静期已累计的有效划动
+    strokesInAngry: 0,          // 生气期已累计的有效划动
+    calmTarget: 0,              // 平静期需要多少划动才回头
+    angryTarget: 0,             // 生气期需要多少划动才死亡
+
+    forgiveTimer: null,
+    lastStrokeTime: 0,
+
     lastPointerX: null,
     lastPointerY: null,
-    // 第一次移动后才显示梳子
-    brushShown: false,
-    // 用于判断"回头时停止梳毛"
-    lastStrokeTime: 0
+    brushShown: false
   };
 
   // ====== 工具 ======
@@ -265,44 +366,29 @@
   // ====== 猫咪状态机 ======
   function setCatState(next) {
     state.catState = next;
+
     if (next === 'calm') {
       catEl.src = IMG_NORMAL;
-      scheduleAngry();
+      // 重新抽一个"回头所需的划动次数"
+      state.strokesInCalm = 0;
+      state.calmTarget = Math.round(rand(CONFIG.calmStrokesMin, CONFIG.calmStrokesMax));
     } else if (next === 'angry') {
       catEl.src = IMG_ANGRY;
       playSound('meow');
-      scheduleDeath();
+      // 重新抽一个"死亡所需的划动次数"
+      state.strokesInAngry = 0;
+      state.angryTarget = Math.round(rand(CONFIG.angryStrokesMin, CONFIG.angryStrokesMax));
+      // 如果玩家停手，安排"原谅"
+      scheduleForgive();
     }
   }
 
-  function scheduleAngry() {
-    clearTimeout(state.stateTimer);
-    const delay = rand(CONFIG.calmMin, CONFIG.calmMax);
-    state.stateTimer = setTimeout(() => {
-      if (state.catState !== 'calm') return;
-      setCatState('angry');
-    }, delay);
-  }
-
-  function scheduleDeath() {
-    clearTimeout(state.stateTimer);
-    const delay = rand(CONFIG.angryMin, CONFIG.angryMax);
-    state.stateTimer = setTimeout(() => {
-      if (state.catState !== 'angry') return;
-      die();
-    }, delay);
-  }
-
-  // 回头时玩家停止梳毛一段时间 → 变回平静
   function scheduleForgive() {
     if (state.catState !== 'angry') return;
-    // 如果已经安排了"原谅"计时，不重复安排
-    // 这里用 stateTimer 会冲突，所以用另一个变量
     clearTimeout(state.forgiveTimer);
     const delay = rand(CONFIG.forgiveMin, CONFIG.forgiveMax);
     state.forgiveTimer = setTimeout(() => {
       if (state.catState !== 'angry') return;
-      // 再次确认这段时间内玩家没再梳毛
       if (now() - state.lastStrokeTime < delay) return;
       setCatState('calm');
     }, delay);
@@ -311,7 +397,6 @@
   function die() {
     if (state.catState === 'dead') return;
     state.catState = 'dead';
-    clearTimeout(state.stateTimer);
     clearTimeout(state.forgiveTimer);
     playSound('lose');
     deathModal.classList.add('show');
@@ -319,7 +404,6 @@
 
   // ====== 滑动处理 ======
   function onPointerMove(clientX, clientY) {
-    // 显示梳子
     if (!state.brushShown) {
       brushEl.style.display = 'block';
       state.brushShown = true;
@@ -335,7 +419,6 @@
 
     const t = now();
 
-    // 判断是否重置滑动起点（停顿太久 或 第一次移动）
     if (state.strokeStartY === null || t - state.lastMoveTime > CONFIG.strokeIdleReset) {
       state.strokeStartX = x;
       state.strokeStartY = y;
@@ -345,52 +428,52 @@
       return;
     }
 
-    // 检查是否在猫身上
-    const catRect  = catEl.getBoundingClientRect();
-    const inCatX = clientX >= catRect.left && clientX <= catRect.right;
-    const inCatY = clientY >= catRect.top  && clientY <= catRect.bottom;
-    const onCat  = inCatX && inCatY;
-
-    if (!onCat) {
+    // 像素级判定：必须在猫的实体上
+    if (!isOnCat(clientX, clientY)) {
       state.lastMoveTime = t;
       state.lastPointerX = x;
       state.lastPointerY = y;
       return;
     }
 
-    // 有效梳毛判定：从上往下划，且长度超过阈值
     const dy = y - state.strokeStartY;
     const dx = x - state.strokeStartX;
     const dist = Math.hypot(dx, dy);
 
-    // 主要方向向下，且长度足够
     const threshold = state.catState === 'angry'
-  ? CONFIG.minStrokeLength * 0.5   // 回头时减半，更容易计分
-  : CONFIG.minStrokeLength;
-if (dy > 0 && dist >= threshold) {
-      // 计一次梳毛
+      ? CONFIG.minStrokeLength * 0.5
+      : CONFIG.minStrokeLength;
+
+    if (dy > 0 && dist >= threshold) {
+      // ====== 一次有效梳毛 ======
       state.score++;
       scoreEl.textContent = state.score;
 
-      // 音效节流
       if (t - state.lastBrushSoundTime > CONFIG.brushSoundCooldown) {
-        playSound('brush');
+        playBrushSound();        // 随机 brush1 / brush2
         state.lastBrushSoundTime = t;
       }
 
-      // 特效：回头时生气，否则爱心
       const fxChar = state.catState === 'angry' ? '💢' : '💗';
       spawnFx(x, y, fxChar);
 
-      // 记录梳毛时间（用于"停止梳毛后原谅"）
       state.lastStrokeTime = t;
 
-      // 如果猫咪正在生气，重新计时"原谅"
-      if (state.catState === 'angry') {
+      // ---- 核心逻辑：用划动次数推进状态 ----
+      if (state.catState === 'calm') {
+        state.strokesInCalm++;
+        if (state.strokesInCalm >= state.calmTarget) {
+          setCatState('angry');         // 累计够了 → 回头
+        }
+      } else if (state.catState === 'angry') {
+        state.strokesInAngry++;
+        // 取消/重排"原谅"计时
         scheduleForgive();
+        if (state.strokesInAngry >= state.angryTarget) {
+          die();                        // 累计够了 → 死亡
+        }
       }
 
-      // 重置起点，准备下一次梳毛
       state.strokeStartX = x;
       state.strokeStartY = y;
     }
@@ -412,7 +495,7 @@ if (dy > 0 && dist >= threshold) {
   gameEl.addEventListener('touchstart', e => {
     e.preventDefault();
     const t = e.touches[0];
-    state.strokeStartY = null;  // 触摸开始，重置起点
+    state.strokeStartY = null;
     onPointerMove(t.clientX, t.clientY);
   }, { passive: false });
 
@@ -424,7 +507,6 @@ if (dy > 0 && dist >= threshold) {
 
   gameEl.addEventListener('touchend', onPointerLeave);
 
-  // 重新开始
   restartBtn.addEventListener('click', () => {
     deathModal.classList.remove('show');
     resetGame();
@@ -441,14 +523,13 @@ if (dy > 0 && dist >= threshold) {
     state.lastStrokeTime = 0;
     state.brushShown = false;
     brushEl.style.display = 'none';
-    clearTimeout(state.stateTimer);
     clearTimeout(state.forgiveTimer);
     setCatState('calm');
   }
 
   // ====== 启动 ======
-  // 首次进入时立即进入 calm 状态，开始随机等待回头
   setCatState('calm');
+  scheduleBgm();
 })();
 </script>
 </body>
