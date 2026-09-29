@@ -99,6 +99,9 @@
     animation: pulse 0.8s ease-in-out infinite;
   }
   #multiplier.show { display: block; }
+  /* 倍率越高，颜色越"烫" */
+  #multiplier.hot   { color: #e05a5a; }
+  #multiplier.blaze { color: #d33; text-shadow: 0 0 12px rgba(221,51,51,0.5); }
   @keyframes pulse {
     0%, 100% { transform: scale(1);   opacity: 1; }
     50%      { transform: scale(1.15); opacity: 0.75; }
@@ -226,7 +229,6 @@
     box-shadow: none;
   }
 
-  /* 加载进度 */
   #loadStatus {
     position: absolute;
     bottom: 56px;
@@ -243,7 +245,6 @@
 </head>
 <body>
 
-<!-- ========== 开始界面 ========== -->
 <div id="startScreen">
   <div class="title">梳猫毛</div>
   <div class="subtitle">BRUSH or DIE</div>
@@ -303,10 +304,40 @@
 
     bgmMin: 10000,
     bgmMax: 35000,
-    bgmVolume: 0.35,
-
-    angryMultiplier: 25
+    bgmVolume: 0.35
   };
+
+  // ====== 倍率表（连续划动次数 → 倍率） ======
+  // 0 是初始倍率，后面每个档位对应"达到多少次"升到该倍率
+  const MULTIPLIER_TABLE = [
+    { strokes: 0,  mult: 25 },
+    { strokes: 5,  mult: 50 },
+    { strokes: 10, mult: 100 },
+    { strokes: 15, mult: 200 },
+    { strokes: 20, mult: 500 },
+    { strokes: 25, mult: 1000 },
+    { strokes: 30, mult: 5000 },
+    { strokes: 35, mult: 50000 },
+    { strokes: 40, mult: 100000 },
+    { strokes: 45, mult: 1000000 }
+  ];
+
+  // 根据连续划动次数算出当前倍率
+  function getMultiplierByCombo(combo) {
+    let mult = MULTIPLIER_TABLE[0].mult;
+    for (const row of MULTIPLIER_TABLE) {
+      if (combo >= row.strokes) mult = row.mult;
+      else break;
+    }
+    return mult;
+  }
+
+  // 根据倍率给出样式类（让高倍率更醒目）
+  function getMultiplierClass(mult) {
+    if (mult >= 100000) return 'blaze';
+    if (mult >= 5000)  return 'hot';
+    return '';
+  }
 
   // ====== DOM ======
   const gameEl    = document.getElementById('game');
@@ -375,7 +406,6 @@
   }
 
   // ========== 预加载 ==========
-  // 收集所有需要预加载的资源
   const audioList = [
     ...brushSounds,
     ...bgmSounds,
@@ -401,17 +431,15 @@
     }
   }
 
-  // 预加载图片
   function preloadImage(src) {
     return new Promise(resolve => {
       const img = new Image();
       img.onload  = () => { onTaskDone(); resolve(); };
-      img.onerror = () => { onTaskDone(); resolve(); };  // 失败也算完成，不卡界面
+      img.onerror = () => { onTaskDone(); resolve(); };
       img.src = src;
     });
   }
 
-  // 预加载音频（等 canplaythrough，或超时 8 秒放行）
   function preloadAudio(audio) {
     return new Promise(resolve => {
       let settled = false;
@@ -422,20 +450,17 @@
         resolve();
       };
 
-      // 已经加载好
       if (audio.readyState >= 4) { finish(); return; }
 
       audio.addEventListener('canplaythrough', finish, { once: true });
       audio.addEventListener('error', finish, { once: true });
       audio.addEventListener('loadeddata', finish, { once: true });
-      // 超时兜底，避免网络太差永远卡住
       setTimeout(finish, 8000);
 
       try { audio.load(); } catch (e) { finish(); }
     });
   }
 
-  // 开始预加载
   const tasks = [
     ...imageSrcList.map(preloadImage),
     ...audioList.map(preloadAudio)
@@ -449,10 +474,7 @@
     }
   });
 
-  // 点击开始 → 进入游戏
   startBtn.addEventListener('click', () => {
-    // 首次用户手势：解锁音频
-    // 用一次静音播放把音频"解锁"，iOS / 安卓都需要
     audioList.forEach(a => {
       try {
         a.muted = true;
@@ -474,7 +496,6 @@
     startScreen.classList.add('hide');
     setTimeout(() => { startScreen.style.display = 'none'; }, 500);
 
-    // 启动游戏
     resetGame();
     scheduleBgm();
   });
@@ -524,6 +545,10 @@
     calmTarget: 0,
     angryTarget: 0,
 
+    // 连续划动（angry 连击）
+    angryCombo: 0,
+    currentMultiplier: MULTIPLIER_TABLE[0].mult,
+
     forgiveTimer: null,
     lastStrokeTime: 0,
     brushShown: false
@@ -543,6 +568,15 @@
     setTimeout(() => el.remove(), 900);
   }
 
+  // 刷新倍率显示
+  function updateMultiplierDisplay() {
+    const mult = state.currentMultiplier;
+    multiplierEl.textContent = '×' + mult;
+    multiplierEl.classList.remove('hot', 'blaze');
+    const cls = getMultiplierClass(mult);
+    if (cls) multiplierEl.classList.add(cls);
+  }
+
   // ====== 猫咪状态机 ======
   function setCatState(next) {
     state.catState = next;
@@ -550,11 +584,19 @@
     if (next === 'calm') {
       catEl.src = IMG_NORMAL;
       multiplierEl.classList.remove('show');
+      // 连击清零
+      state.angryCombo = 0;
+      state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
       state.strokesInCalm = 0;
       state.calmTarget = Math.round(rand(CONFIG.calmStrokesMin, CONFIG.calmStrokesMax));
     } else if (next === 'angry') {
       catEl.src = IMG_ANGRY;
       multiplierEl.classList.add('show');
+      // 进入 angry，连击归零，倍率回到初始 25
+      state.angryCombo = 0;
+      state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
+      updateMultiplierDisplay();
+
       playSound('meow');
       state.strokesInAngry = 0;
       state.angryTarget = Math.round(rand(CONFIG.angryStrokesMin, CONFIG.angryStrokesMax));
@@ -621,7 +663,8 @@
     if (dy > 0 && dy >= minH && !state.strokeCounted) {
       state.strokeCounted = true;
 
-      const gain = state.catState === 'angry' ? CONFIG.angryMultiplier : 1;
+      // ====== 计分 ======
+      const gain = state.catState === 'angry' ? state.currentMultiplier : 1;
       state.score += gain;
       scoreEl.textContent = state.score;
 
@@ -641,6 +684,14 @@
           setCatState('angry');
         }
       } else if (state.catState === 'angry') {
+        // ---- 连击 +1，重算倍率 ----
+        state.angryCombo++;
+        const newMult = getMultiplierByCombo(state.angryCombo);
+        if (newMult !== state.currentMultiplier) {
+          state.currentMultiplier = newMult;
+          updateMultiplierDisplay();
+        }
+
         state.strokesInAngry++;
         scheduleForgive();
         if (state.strokesInAngry >= state.angryTarget) {
@@ -696,15 +747,15 @@
     state.lastBrushSoundTime = 0;
     state.lastStrokeTime = 0;
     state.brushShown = false;
+    state.angryCombo = 0;
+    state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
     brushEl.style.display = 'none';
     clearTimeout(state.forgiveTimer);
-    multiplierEl.classList.remove('show');
+    multiplierEl.classList.remove('show', 'hot', 'blaze');
     setCatState('calm');
   }
 
   // ====== 启动 ======
-  // 注意：游戏逻辑等点击"开始游戏"后才启动
-  // 这里先只做资源预加载
 })();
 </script>
 </body>
