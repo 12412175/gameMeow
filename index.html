@@ -69,7 +69,6 @@
     100% { transform: translate(-50%, -180%) scale(1.25); opacity: 0; }
   }
 
-  /* 左上角分数 */
   #scorePanel {
     position: absolute;
     top: 24px;
@@ -90,7 +89,6 @@
     line-height: 1.1;
   }
 
-  /* ×5 提示 */
   #multiplier {
     display: none;
     margin-top: 4px;
@@ -146,7 +144,6 @@
     color: #8a8178;
     margin-bottom: 16px;
   }
-  /* 弹窗里的最终分数 */
   #deathCard .finalScore {
     font-size: 18px;
     font-weight: 700;
@@ -174,9 +171,87 @@
   }
   #restartBtn:hover  { background: #97a891; }
   #restartBtn:active { transform: scale(0.96); }
+
+  /* ========== 开始界面 ========== */
+  #startScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #e8e4dd;
+    transition: opacity 0.5s ease;
+  }
+  #startScreen.hide {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #startScreen .title {
+    font-size: 52px;
+    font-weight: 800;
+    color: #6b6357;
+    letter-spacing: 6px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  #startScreen .subtitle {
+    font-size: 15px;
+    color: #8a8178;
+    letter-spacing: 3px;
+    margin-bottom: 56px;
+  }
+
+  #startBtn {
+    padding: 16px 64px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    background: #a8b5a2;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 4px;
+    box-shadow: 0 8px 24px rgba(168,181,162,0.5);
+    transition: background 0.2s, transform 0.1s, opacity 0.3s;
+  }
+  #startBtn:hover:not(:disabled)  { background: #97a891; }
+  #startBtn:active:not(:disabled) { transform: scale(0.96); }
+  #startBtn:disabled {
+    opacity: 0.5;
+    cursor: default;
+    box-shadow: none;
+  }
+
+  /* 加载进度 */
+  #loadStatus {
+    position: absolute;
+    bottom: 56px;
+    font-size: 13px;
+    color: #8a8178;
+    letter-spacing: 1px;
+  }
+  #loadStatus .num {
+    font-weight: 800;
+    color: #6b6357;
+    font-size: 15px;
+  }
 </style>
 </head>
 <body>
+
+<!-- ========== 开始界面 ========== -->
+<div id="startScreen">
+  <div class="title">梳毛</div>
+  <div class="subtitle">CAT BRUSH</div>
+  <button id="startBtn" disabled>加载中…</button>
+  <div id="loadStatus">
+    正在加载资源 <span class="num" id="loadCount">0</span> / <span id="loadTotal">0</span>
+  </div>
+</div>
 
 <div id="game">
   <div id="scorePanel">
@@ -214,28 +289,22 @@
 
   // ====== 配置 ======
   const CONFIG = {
-    // 划动判定
     minStrokeHeightRatio: 0.3,
     strokeIdleReset: 200,
-
     brushSoundCooldown: 80,
 
-    // 猫咪状态（由划动次数驱动）
     calmStrokesMin: 3,
     calmStrokesMax: 30,
     angryStrokesMin: 2,
     angryStrokesMax: 50,
 
-    // 回头时停止梳毛多久后恢复
     forgiveMin: 1000,
     forgiveMax: 5000,
 
-    // 背景音效
     bgmMin: 10000,
     bgmMax: 35000,
     bgmVolume: 0.35,
 
-    // 回头时的得分倍率
     angryMultiplier: 25
   };
 
@@ -249,27 +318,31 @@
   const finalScoreEl = document.getElementById('finalScore');
   const restartBtn= document.getElementById('restartBtn');
 
+  const startScreen = document.getElementById('startScreen');
+  const startBtn    = document.getElementById('startBtn');
+  const loadCountEl = document.getElementById('loadCount');
+  const loadTotalEl = document.getElementById('loadTotal');
+
   // ====== 音效 ======
- function makeAudio(src, volume) {
-  const a = new Audio();
-  a.preload = 'auto';        // 让浏览器主动预加载
-  a.src = src;
-  a.volume = volume;
-  a.load();                  // 主动触发加载
-  return a;
-}
- 
+  function makeAudio(src, volume) {
+    const a = new Audio();
+    a.preload = 'auto';
+    a.src = src;
+    a.volume = volume;
+    return a;
+  }
+
   const brushSounds = [
-  makeAudio(BASE_SND + 'brush1.MP3', 0.45),
-  makeAudio(BASE_SND + 'brush2.MP3', 0.45)
-];
+    makeAudio(BASE_SND + 'brush1.MP3', 0.45),
+    makeAudio(BASE_SND + 'brush2.MP3', 0.45)
+  ];
   const bgmSounds = [1,2,3,4,5,6].map(i =>
-  makeAudio(BASE_SND + 'm' + i + '.MP3', CONFIG.bgmVolume)
-);
+    makeAudio(BASE_SND + 'm' + i + '.MP3', CONFIG.bgmVolume)
+  );
   const sounds = {
-  meow: makeAudio(BASE_SND + 'meow.MP3', 0.6),
-  lose: makeAudio(BASE_SND + 'lose.MP3', 0.7)
-};
+    meow: makeAudio(BASE_SND + 'meow.MP3', 0.6),
+    lose: makeAudio(BASE_SND + 'lose.MP3', 0.7)
+  };
 
   function playBrushSound() {
     const s = brushSounds[Math.floor(Math.random() * brushSounds.length)];
@@ -300,6 +373,111 @@
       if (p && p.catch) p.catch(() => {});
     } catch (e) {}
   }
+
+  // ========== 预加载 ==========
+  // 收集所有需要预加载的资源
+  const audioList = [
+    ...brushSounds,
+    ...bgmSounds,
+    sounds.meow,
+    sounds.lose
+  ];
+  const imageSrcList = [IMG_NORMAL, IMG_ANGRY];
+
+  const totalTasks = audioList.length + imageSrcList.length;
+  let doneTasks = 0;
+  loadTotalEl.textContent = totalTasks;
+  loadCountEl.textContent = '0';
+
+  let allLoaded = false;
+
+  function onTaskDone() {
+    doneTasks++;
+    loadCountEl.textContent = doneTasks;
+    if (doneTasks >= totalTasks && !allLoaded) {
+      allLoaded = true;
+      startBtn.disabled = false;
+      startBtn.textContent = '开始游戏';
+    }
+  }
+
+  // 预加载图片
+  function preloadImage(src) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload  = () => { onTaskDone(); resolve(); };
+      img.onerror = () => { onTaskDone(); resolve(); };  // 失败也算完成，不卡界面
+      img.src = src;
+    });
+  }
+
+  // 预加载音频（等 canplaythrough，或超时 8 秒放行）
+  function preloadAudio(audio) {
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        onTaskDone();
+        resolve();
+      };
+
+      // 已经加载好
+      if (audio.readyState >= 4) { finish(); return; }
+
+      audio.addEventListener('canplaythrough', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      audio.addEventListener('loadeddata', finish, { once: true });
+      // 超时兜底，避免网络太差永远卡住
+      setTimeout(finish, 8000);
+
+      try { audio.load(); } catch (e) { finish(); }
+    });
+  }
+
+  // 开始预加载
+  const tasks = [
+    ...imageSrcList.map(preloadImage),
+    ...audioList.map(preloadAudio)
+  ];
+
+  Promise.all(tasks).then(() => {
+    if (!allLoaded) {
+      allLoaded = true;
+      startBtn.disabled = false;
+      startBtn.textContent = '开始游戏';
+    }
+  });
+
+  // 点击开始 → 进入游戏
+  startBtn.addEventListener('click', () => {
+    // 首次用户手势：解锁音频
+    // 用一次静音播放把音频"解锁"，iOS / 安卓都需要
+    audioList.forEach(a => {
+      try {
+        a.muted = true;
+        const p = a.play();
+        if (p && p.then) {
+          p.then(() => {
+            a.pause();
+            a.currentTime = 0;
+            a.muted = false;
+          }).catch(() => { a.muted = false; });
+        } else {
+          a.pause();
+          a.currentTime = 0;
+          a.muted = false;
+        }
+      } catch (e) {}
+    });
+
+    startScreen.classList.add('hide');
+    setTimeout(() => { startScreen.style.display = 'none'; }, 500);
+
+    // 启动游戏
+    resetGame();
+    scheduleBgm();
+  });
 
   // ====== 背景音效调度 ======
   let bgmTimer = null;
@@ -334,7 +512,6 @@
   // ====== 状态 ======
   const state = {
     score: 0,
-
     strokeStartY: null,
     strokeStartValid: false,
     strokeCounted: false,
@@ -349,7 +526,6 @@
 
     forgiveTimer: null,
     lastStrokeTime: 0,
-
     brushShown: false
   };
 
@@ -373,12 +549,12 @@
 
     if (next === 'calm') {
       catEl.src = IMG_NORMAL;
-      multiplierEl.classList.remove('show');       // 隐藏 ×5
+      multiplierEl.classList.remove('show');
       state.strokesInCalm = 0;
       state.calmTarget = Math.round(rand(CONFIG.calmStrokesMin, CONFIG.calmStrokesMax));
     } else if (next === 'angry') {
       catEl.src = IMG_ANGRY;
-      multiplierEl.classList.add('show');           // 显示 ×5
+      multiplierEl.classList.add('show');
       playSound('meow');
       state.strokesInAngry = 0;
       state.angryTarget = Math.round(rand(CONFIG.angryStrokesMin, CONFIG.angryStrokesMax));
@@ -403,10 +579,7 @@
     clearTimeout(state.forgiveTimer);
     multiplierEl.classList.remove('show');
     playSound('lose');
-
-    // 显示最终梳毛次数
     finalScoreEl.textContent = state.score;
-
     deathModal.classList.add('show');
   }
 
@@ -448,7 +621,6 @@
     if (dy > 0 && dy >= minH && !state.strokeCounted) {
       state.strokeCounted = true;
 
-      // ====== 计分：回头时 5 倍 ======
       const gain = state.catState === 'angry' ? CONFIG.angryMultiplier : 1;
       state.score += gain;
       scoreEl.textContent = state.score;
@@ -463,7 +635,6 @@
 
       state.lastStrokeTime = t;
 
-      // ---- 推进猫咪状态（按次数，不受倍率影响）----
       if (state.catState === 'calm') {
         state.strokesInCalm++;
         if (state.strokesInCalm >= state.calmTarget) {
@@ -532,8 +703,8 @@
   }
 
   // ====== 启动 ======
-  setCatState('calm');
-  scheduleBgm();
+  // 注意：游戏逻辑等点击"开始游戏"后才启动
+  // 这里先只做资源预加载
 })();
 </script>
 </body>
