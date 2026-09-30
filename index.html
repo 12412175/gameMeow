@@ -33,7 +33,22 @@
     justify-content: center;
   }
 
+  /* ====== 背景图（在猫下一层） ====== */
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    z-index: 1;                 /* 猫是 z-index:2，所以背景在下面 */
+  }
+
+  /* ====== 猫（calm / angry 共用样式） ====== */
   #cat {
+    position: relative;
+    z-index: 2;
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -41,7 +56,28 @@
     -webkit-user-drag: none;
     filter: drop-shadow(0 10px 24px rgba(120,110,100,0.18));
     transition: opacity 0.15s ease;
+
+    /* 默认：平静呼吸 */
+    transform-origin: center 75%;
+    will-change: transform;
+    animation: breatheCalm 3.2s ease-in-out infinite;
   }
+
+  /* 平静：缓慢深呼吸 */
+  @keyframes breatheCalm {
+    0%, 100% { transform: scale(1) translateY(0); }
+    50%      { transform: scale(1.025) translateY(-4px); }
+  }
+
+  /* 生气：急促呼吸 */
+  @keyframes breatheAngry {
+    0%, 100% { transform: scale(1) translateY(0); }
+    50%      { transform: scale(1.02) translateY(-2px); }
+  }
+
+  /* 用 class 切换呼吸节奏 */
+  #cat.calm  { animation: breatheCalm  3.2s ease-in-out infinite; }
+  #cat.angry { animation: breatheAngry 0.9s ease-in-out infinite; }
 
   #brush {
     position: absolute;
@@ -99,7 +135,6 @@
     animation: pulse 0.8s ease-in-out infinite;
   }
   #multiplier.show { display: block; }
-  /* 倍率越高，颜色越"烫" */
   #multiplier.hot   { color: #e05a5a; }
   #multiplier.blaze { color: #d33; text-shadow: 0 0 12px rgba(221,51,51,0.5); }
   @keyframes pulse {
@@ -235,12 +270,20 @@
     font-size: 13px;
     color: #8a8178;
     letter-spacing: 1px;
+    text-align: center;
   }
   #loadStatus .num {
     font-weight: 800;
     color: #6b6357;
     font-size: 15px;
   }
+  #loadStatus .err {
+    display: none;
+    margin-top: 8px;
+    color: #c05050;
+    font-weight: 700;
+  }
+  #loadStatus .err.show { display: block; }
 </style>
 </head>
 <body>
@@ -251,6 +294,7 @@
   <button id="startBtn" disabled>加载中…</button>
   <div id="loadStatus">
     正在加载资源 <span class="num" id="loadCount">0</span> / <span id="loadTotal">0</span>
+    <div class="err" id="loadError">图片加载失败，请检查网络后刷新</div>
   </div>
 </div>
 
@@ -262,7 +306,10 @@
   </div>
 
   <div id="catWrap">
-    <img id="cat" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/cat.png" alt="猫" draggable="false">
+    <!-- 背景图：在猫下一层 -->
+    <img id="bg" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/background.png" alt="" draggable="false">
+    <!-- 猫：calm 时用 cat.png，angry 时用 meow.png -->
+    <img id="cat" class="calm" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/cat.png" alt="猫" draggable="false">
   </div>
 
   <div id="brush">🫳</div>
@@ -285,6 +332,7 @@
   const BASE_IMG  = 'https://raw.githubusercontent.com/12412175/gameMeow/main/images/';
   const BASE_SND  = 'https://raw.githubusercontent.com/12412175/gameMeow/main/sounds/';
 
+  const IMG_BG     = BASE_IMG + 'background.png';
   const IMG_NORMAL = BASE_IMG + 'cat.png';
   const IMG_ANGRY  = BASE_IMG + 'meow.png';
 
@@ -307,8 +355,7 @@
     bgmVolume: 0.35
   };
 
-  // ====== 倍率表（连续划动次数 → 倍率） ======
-  // 0 是初始倍率，后面每个档位对应"达到多少次"升到该倍率
+  // ====== 倍率表 ======
   const MULTIPLIER_TABLE = [
     { strokes: 0,  mult: 25 },
     { strokes: 5,  mult: 50 },
@@ -322,7 +369,6 @@
     { strokes: 45, mult: 1000000 }
   ];
 
-  // 根据连续划动次数算出当前倍率
   function getMultiplierByCombo(combo) {
     let mult = MULTIPLIER_TABLE[0].mult;
     for (const row of MULTIPLIER_TABLE) {
@@ -332,7 +378,6 @@
     return mult;
   }
 
-  // 根据倍率给出样式类（让高倍率更醒目）
   function getMultiplierClass(mult) {
     if (mult >= 100000) return 'blaze';
     if (mult >= 5000)  return 'hot';
@@ -341,6 +386,7 @@
 
   // ====== DOM ======
   const gameEl    = document.getElementById('game');
+  const bgEl      = document.getElementById('bg');
   const catEl     = document.getElementById('cat');
   const brushEl   = document.getElementById('brush');
   const scoreEl   = document.getElementById('score');
@@ -353,6 +399,7 @@
   const startBtn    = document.getElementById('startBtn');
   const loadCountEl = document.getElementById('loadCount');
   const loadTotalEl = document.getElementById('loadTotal');
+  const loadErrorEl = document.getElementById('loadError');
 
   // ====== 音效 ======
   function makeAudio(src, volume) {
@@ -367,7 +414,7 @@
     makeAudio(BASE_SND + 'brush1.MP3', 0.45),
     makeAudio(BASE_SND + 'brush2.MP3', 0.45)
   ];
-  const bgmSounds = [1,2,3,4,5,6].map(i =>
+  const bgmSounds = [1,2,3,4,5].map(i =>
     makeAudio(BASE_SND + 'm' + i + '.MP3', CONFIG.bgmVolume)
   );
   const sounds = {
@@ -406,16 +453,28 @@
   }
 
   // ========== 预加载 ==========
+  // 音频：失败也算完成（不阻塞游戏）
+  // 关键图片（cat.png / meow.png）：失败会阻止开始，并显示错误
   const audioList = [
     ...brushSounds,
     ...bgmSounds,
     sounds.meow,
     sounds.lose
   ];
-  const imageSrcList = [IMG_NORMAL, IMG_ANGRY];
 
-  const totalTasks = audioList.length + imageSrcList.length;
+  // 关键图片：必须加载成功才允许开始
+  const criticalImages = [
+    { src: IMG_BG,     el: bgEl  },
+    { src: IMG_NORMAL, el: catEl },   // 注意：cat.png 本身作为关键
+    { src: IMG_ANGRY,  el: null  }    // meow.png 单独预加载，不直接赋值给 catEl
+  ];
+  // 背景图失败不算致命（可选，这里也当成致命，你若不想可移出）
+  // 为简单起见，把 bg 也算进 critical
+
+  const totalTasks = audioList.length + criticalImages.length;
   let doneTasks = 0;
+  let criticalFailed = false;
+
   loadTotalEl.textContent = totalTasks;
   loadCountEl.textContent = '0';
 
@@ -424,22 +483,27 @@
   function onTaskDone() {
     doneTasks++;
     loadCountEl.textContent = doneTasks;
-    if (doneTasks >= totalTasks && !allLoaded) {
-      allLoaded = true;
-      startBtn.disabled = false;
-      startBtn.textContent = '开始游戏';
-    }
+    tryEnableStart();
   }
 
-  function preloadImage(src) {
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload  = () => { onTaskDone(); resolve(); };
-      img.onerror = () => { onTaskDone(); resolve(); };
-      img.src = src;
-    });
+  function tryEnableStart() {
+    if (doneTasks < totalTasks) return;
+    if (allLoaded) return;
+    if (criticalFailed) return;   // 关键图片失败 → 不放行
+
+    allLoaded = true;
+    startBtn.disabled = false;
+    startBtn.textContent = '开始游戏';
   }
 
+  function onCriticalFail() {
+    criticalFailed = true;
+    loadErrorEl.classList.add('show');
+    startBtn.disabled = true;
+    startBtn.textContent = '加载失败';
+  }
+
+  // 普通预加载（音频：失败也放行）
   function preloadAudio(audio) {
     return new Promise(resolve => {
       let settled = false;
@@ -461,20 +525,39 @@
     });
   }
 
+  // 关键图片预加载（失败会阻止开始）
+  function preloadCriticalImage(item) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        // 如果这个 src 就是当前 catEl 的 src，直接用它替换，避免再加载一次
+        if (item.el === catEl) {
+          catEl.src = item.src;
+        }
+        onTaskDone();
+        resolve();
+      };
+      img.onerror = () => {
+        onCriticalFail();
+        onTaskDone();
+        resolve();
+      };
+      img.src = item.src;
+    });
+  }
+
   const tasks = [
-    ...imageSrcList.map(preloadImage),
+    ...criticalImages.map(preloadCriticalImage),
     ...audioList.map(preloadAudio)
   ];
 
   Promise.all(tasks).then(() => {
-    if (!allLoaded) {
-      allLoaded = true;
-      startBtn.disabled = false;
-      startBtn.textContent = '开始游戏';
-    }
+    tryEnableStart();
   });
 
   startBtn.addEventListener('click', () => {
+    if (startBtn.disabled) return;
+
     audioList.forEach(a => {
       try {
         a.muted = true;
@@ -545,7 +628,6 @@
     calmTarget: 0,
     angryTarget: 0,
 
-    // 连续划动（angry 连击）
     angryCombo: 0,
     currentMultiplier: MULTIPLIER_TABLE[0].mult,
 
@@ -568,15 +650,14 @@
     setTimeout(() => el.remove(), 900);
   }
 
-  // 刷新倍率显示
   function updateMultiplierDisplay() {
-  const mult  = state.currentMultiplier;
-  const combo = state.angryCombo;
-  multiplierEl.textContent = '×' + mult + ' (' + combo + ' combo)';
-  multiplierEl.classList.remove('hot', 'blaze');
-  const cls = getMultiplierClass(mult);
-  if (cls) multiplierEl.classList.add(cls);
-}
+    const mult  = state.currentMultiplier;
+    const combo = state.angryCombo;
+    multiplierEl.textContent = '×' + mult + ' (' + combo + ' combo)';
+    multiplierEl.classList.remove('hot', 'blaze');
+    const cls = getMultiplierClass(mult);
+    if (cls) multiplierEl.classList.add(cls);
+  }
 
   // ====== 猫咪状态机 ======
   function setCatState(next) {
@@ -584,16 +665,16 @@
 
     if (next === 'calm') {
       catEl.src = IMG_NORMAL;
+      catEl.className = 'calm';          // ← 切换呼吸节奏
       multiplierEl.classList.remove('show');
-      // 连击清零
       state.angryCombo = 0;
       state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
       state.strokesInCalm = 0;
       state.calmTarget = Math.round(rand(CONFIG.calmStrokesMin, CONFIG.calmStrokesMax));
     } else if (next === 'angry') {
       catEl.src = IMG_ANGRY;
+      catEl.className = 'angry';         // ← 切换呼吸节奏
       multiplierEl.classList.add('show');
-      // 进入 angry，连击归零，倍率回到初始 25
       state.angryCombo = 0;
       state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
       updateMultiplierDisplay();
@@ -664,7 +745,6 @@
     if (dy > 0 && dy >= minH && !state.strokeCounted) {
       state.strokeCounted = true;
 
-      // ====== 计分 ======
       const gain = state.catState === 'angry' ? state.currentMultiplier : 1;
       state.score += gain;
       scoreEl.textContent = state.score;
@@ -685,7 +765,6 @@
           setCatState('angry');
         }
       } else if (state.catState === 'angry') {
-        // ---- 连击 +1，重算倍率 ----
         state.angryCombo++;
         state.currentMultiplier = getMultiplierByCombo(state.angryCombo);
         updateMultiplierDisplay();
@@ -753,7 +832,6 @@
     setCatState('calm');
   }
 
-  // ====== 启动 ======
 })();
 </script>
 </body>
