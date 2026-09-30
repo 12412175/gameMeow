@@ -33,7 +33,7 @@
     justify-content: center;
   }
 
-  /* ====== 背景图（在猫下一层） ====== */
+  /* ====== 背景图（最下层） ====== */
   #bg {
     position: absolute;
     inset: 0;
@@ -42,10 +42,10 @@
     object-fit: contain;
     pointer-events: none;
     -webkit-user-drag: none;
-    z-index: 1;                 /* 猫是 z-index:2，所以背景在下面 */
+    z-index: 1;
   }
 
-  /* ====== 猫（calm / angry 共用样式） ====== */
+  /* ====== 猫（calm / angry 共用） ====== */
   #cat {
     position: relative;
     z-index: 2;
@@ -56,11 +56,8 @@
     -webkit-user-drag: none;
     filter: drop-shadow(0 10px 24px rgba(120,110,100,0.18));
     transition: opacity 0.15s ease;
-
-    /* 默认：平静呼吸 */
     transform-origin: center 75%;
     will-change: transform;
-    animation: breatheCalm 3.2s ease-in-out infinite;
   }
 
   /* 平静：缓慢深呼吸 */
@@ -75,9 +72,20 @@
     50%      { transform: scale(1.02) translateY(-2px); }
   }
 
-  /* 用 class 切换呼吸节奏 */
   #cat.calm  { animation: breatheCalm  3.2s ease-in-out infinite; }
   #cat.angry { animation: breatheAngry 0.9s ease-in-out infinite; }
+
+  /* ====== 上层装饰图（在猫上面） ====== */
+  #up {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    z-index: 3;
+  }
 
   #brush {
     position: absolute;
@@ -306,10 +314,12 @@
   </div>
 
   <div id="catWrap">
-    <!-- 背景图：在猫下一层 -->
+    <!-- 背景图：最下层 -->
     <img id="bg" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/background.png" alt="" draggable="false">
-    <!-- 猫：calm 时用 cat.png，angry 时用 meow.png -->
+    <!-- 猫：中间层 -->
     <img id="cat" class="calm" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/cat.png" alt="猫" draggable="false">
+    <!-- 上层装饰图：最上层 -->
+    <img id="up" src="https://raw.githubusercontent.com/12412175/gameMeow/main/images/up.png" alt="" draggable="false">
   </div>
 
   <div id="brush">🫳</div>
@@ -335,6 +345,7 @@
   const IMG_BG     = BASE_IMG + 'background.png';
   const IMG_NORMAL = BASE_IMG + 'cat.png';
   const IMG_ANGRY  = BASE_IMG + 'meow.png';
+  const IMG_UP     = BASE_IMG + 'up.png';
 
   // ====== 配置 ======
   const CONFIG = {
@@ -388,6 +399,7 @@
   const gameEl    = document.getElementById('game');
   const bgEl      = document.getElementById('bg');
   const catEl     = document.getElementById('cat');
+  const upEl      = document.getElementById('up');
   const brushEl   = document.getElementById('brush');
   const scoreEl   = document.getElementById('score');
   const multiplierEl = document.getElementById('multiplier');
@@ -453,8 +465,6 @@
   }
 
   // ========== 预加载 ==========
-  // 音频：失败也算完成（不阻塞游戏）
-  // 关键图片（cat.png / meow.png）：失败会阻止开始，并显示错误
   const audioList = [
     ...brushSounds,
     ...bgmSounds,
@@ -465,11 +475,10 @@
   // 关键图片：必须加载成功才允许开始
   const criticalImages = [
     { src: IMG_BG,     el: bgEl  },
-    { src: IMG_NORMAL, el: catEl },   // 注意：cat.png 本身作为关键
-    { src: IMG_ANGRY,  el: null  }    // meow.png 单独预加载，不直接赋值给 catEl
+    { src: IMG_NORMAL, el: catEl },
+    { src: IMG_ANGRY,  el: null  },
+    { src: IMG_UP,     el: upEl  }
   ];
-  // 背景图失败不算致命（可选，这里也当成致命，你若不想可移出）
-  // 为简单起见，把 bg 也算进 critical
 
   const totalTasks = audioList.length + criticalImages.length;
   let doneTasks = 0;
@@ -489,7 +498,7 @@
   function tryEnableStart() {
     if (doneTasks < totalTasks) return;
     if (allLoaded) return;
-    if (criticalFailed) return;   // 关键图片失败 → 不放行
+    if (criticalFailed) return;
 
     allLoaded = true;
     startBtn.disabled = false;
@@ -503,7 +512,6 @@
     startBtn.textContent = '加载失败';
   }
 
-  // 普通预加载（音频：失败也放行）
   function preloadAudio(audio) {
     return new Promise(resolve => {
       let settled = false;
@@ -525,12 +533,10 @@
     });
   }
 
-  // 关键图片预加载（失败会阻止开始）
   function preloadCriticalImage(item) {
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => {
-        // 如果这个 src 就是当前 catEl 的 src，直接用它替换，避免再加载一次
         if (item.el === catEl) {
           catEl.src = item.src;
         }
@@ -665,7 +671,7 @@
 
     if (next === 'calm') {
       catEl.src = IMG_NORMAL;
-      catEl.className = 'calm';          // ← 切换呼吸节奏
+      catEl.className = 'calm';
       multiplierEl.classList.remove('show');
       state.angryCombo = 0;
       state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
@@ -673,7 +679,7 @@
       state.calmTarget = Math.round(rand(CONFIG.calmStrokesMin, CONFIG.calmStrokesMax));
     } else if (next === 'angry') {
       catEl.src = IMG_ANGRY;
-      catEl.className = 'angry';         // ← 切换呼吸节奏
+      catEl.className = 'angry';
       multiplierEl.classList.add('show');
       state.angryCombo = 0;
       state.currentMultiplier = MULTIPLIER_TABLE[0].mult;
