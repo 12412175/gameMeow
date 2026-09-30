@@ -258,7 +258,7 @@
   <div id="scorePanel">
     <div class="label">梳毛次数</div>
     <div class="value" id="score">0</div>
-    <div id="multiplier">×25</div>
+    <div id="multiplier">×25 (0 combo)</div>
   </div>
 
   <div id="catWrap">
@@ -570,12 +570,13 @@
 
   // 刷新倍率显示
   function updateMultiplierDisplay() {
-    const mult = state.currentMultiplier;
-    multiplierEl.textContent = '×' + mult;
-    multiplierEl.classList.remove('hot', 'blaze');
-    const cls = getMultiplierClass(mult);
-    if (cls) multiplierEl.classList.add(cls);
-  }
+  const mult  = state.currentMultiplier;
+  const combo = state.angryCombo;
+  multiplierEl.textContent = '×' + mult + ' (' + combo + ' combo)';
+  multiplierEl.classList.remove('hot', 'blaze');
+  const cls = getMultiplierClass(mult);
+  if (cls) multiplierEl.classList.add(cls);
+}
 
   // ====== 猫咪状态机 ======
   function setCatState(next) {
@@ -686,11 +687,8 @@
       } else if (state.catState === 'angry') {
         // ---- 连击 +1，重算倍率 ----
         state.angryCombo++;
-        const newMult = getMultiplierByCombo(state.angryCombo);
-        if (newMult !== state.currentMultiplier) {
-          state.currentMultiplier = newMult;
-          updateMultiplierDisplay();
-        }
+        state.currentMultiplier = getMultiplierByCombo(state.angryCombo);
+        updateMultiplierDisplay();
 
         state.strokesInAngry++;
         scheduleForgive();
