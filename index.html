@@ -360,8 +360,8 @@
     forgiveMin: 1000,
     forgiveMax: 5000,
 
-    bgmMin: 10000,
-    bgmMax: 35000,
+    bgmMin: 30000,
+    bgmMax: 120000,
     bgmVolume: 0.35
   };
 
@@ -425,7 +425,7 @@
     makeAudio(BASE_SND + 'brush1.MP3', 0.45),
     makeAudio(BASE_SND + 'brush2.MP3', 0.45)
   ];
-  const bgmSounds = [1,2,3,4,5].map(i =>
+  const bgmSounds = [1,2].map(i =>
     makeAudio(BASE_SND + 'm' + i + '.MP3', CONFIG.bgmVolume)
   );
   const sounds = {
